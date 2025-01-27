@@ -4,8 +4,8 @@ import torch
 # Initialize the model and tokenizer
 model = LlavaForConditionalGeneration.from_pretrained(
     "model",
-    device_map="cpu",
-    torch_dtype=torch.float32
+    device_map="auto",  # Let the model decide optimal device placement
+    torch_dtype=torch.float16  # Use half precision
 )
 tokenizer = AutoTokenizer.from_pretrained("model")
 
@@ -20,8 +20,9 @@ data = {
     }
 }
 
-# Tokenize input
+# Tokenize input and move to same device as model
 inputs = tokenizer(data["inputs"], return_tensors="pt")
+inputs = {k: v.to(model.device) for k, v in inputs.items()}  # Move inputs to same device as model
 
 # Generate with a timeout
 try:
