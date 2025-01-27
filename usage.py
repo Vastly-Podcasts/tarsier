@@ -1,17 +1,36 @@
 from transformers import LlavaForConditionalGeneration, AutoTokenizer
 import torch
+import sys
+
+# Check if input text is provided
+if len(sys.argv) < 2:
+    print("Usage: python usage.py 'your text here'")
+    sys.exit(1)
+
+# Check if CUDA is actually available
+device = "cuda" if torch.cuda.is_available() else "cpu"
+dtype = torch.float16 if device == "cuda" else torch.float32
+
+print(f"Using device: {device}, dtype: {dtype}")
 
 # Initialize the model and tokenizer
 model = LlavaForConditionalGeneration.from_pretrained(
     "model",
-    device_map="auto",  # Let the model decide optimal device placement
-    torch_dtype=torch.float16  # Use half precision
+    device_map="auto" if device == "cuda" else None,
+    torch_dtype=dtype
 )
+
+if device == "cpu":
+    model = model.to(device)  # Explicitly move to CPU if needed
+
 tokenizer = AutoTokenizer.from_pretrained("model")
+
+# Get input text from command line argument
+input_text = sys.argv[1]
 
 # Prepare your input data with a shorter generation length
 data = {
-    "inputs": "Say hello to the world",
+    "inputs": input_text,
     "parameters": {
         "max_new_tokens": 20,  # Reduced for faster generation
         "temperature": 0.7,    # Lower temperature for faster, more focused generation
