@@ -6,5 +6,5 @@ model_name = "omni-research/Tarsier-7b"
 model = LlavaForConditionalGeneration.from_pretrained(model_name)
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-model.save_pretrained("/dev/shm")
-tokenizer.save_pretrained("/dev/shm")
+model.save_pretrained("model")
+tokenizer.save_pretrained("model")
