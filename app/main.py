@@ -160,13 +160,31 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
                 if video_size == 0:
                     raise HTTPException(status_code=400, detail="Video file is empty")
                 
-                # Process video and text together
-                print("Processing video with instruction:", request.instruction)
-                processor_output = processor(
-                    text=request.instruction,
+                # First process the video frames
+                print("Processing video frames...")
+                video_processor_output = processor(
                     videos=video_path,
                     return_tensors="pt"
                 )
+                
+                if "pixel_values" not in video_processor_output:
+                    raise HTTPException(status_code=500, detail="Failed to extract video frames")
+                
+                print(f"Extracted video frames shape: {video_processor_output['pixel_values'].shape}")
+                
+                # Then process the text instruction
+                print("Processing instruction:", request.instruction)
+                text_processor_output = processor(
+                    text=f"<video>\n{request.instruction}",
+                    return_tensors="pt"
+                )
+                
+                # Combine the outputs
+                processor_output = {
+                    "input_ids": text_processor_output["input_ids"],
+                    "attention_mask": text_processor_output["attention_mask"],
+                    "pixel_values": video_processor_output["pixel_values"]
+                }
                 
                 # Log processor output structure
                 print("\nProcessor output keys:", processor_output.keys())
