@@ -162,64 +162,51 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
                 
                 # First process the video frames
                 print("Processing video frames...")
-                video_processor_output = processor(
-                    videos=video_path,
-                    return_tensors="pt"
-                )
-                
-                if "pixel_values" not in video_processor_output:
-                    raise HTTPException(status_code=500, detail="Failed to extract video frames")
-                
-                print(f"Extracted video frames shape: {video_processor_output['pixel_values'].shape}")
-                
-                # Then process the text instruction
-                print("Processing instruction:", request.instruction)
-                text_processor_output = processor(
-                    text=f"<video>\n{request.instruction}",
-                    return_tensors="pt"
-                )
-                
-                # Combine the outputs
-                processor_output = {
-                    "input_ids": text_processor_output["input_ids"],
-                    "attention_mask": text_processor_output["attention_mask"],
-                    "pixel_values": video_processor_output["pixel_values"]
-                }
-                
-                # Log processor output structure
-                print("\nProcessor output keys:", processor_output.keys())
-                for k, v in processor_output.items():
-                    if isinstance(v, torch.Tensor):
-                        print(f"{k} shape: {v.shape}, dtype: {v.dtype}, device: {v.device}")
-                
-                # Let the model handle device placement
-                inputs = {
-                    k: v.to(model.device) if isinstance(v, torch.Tensor) else v 
-                    for k, v in processor_output.items()
-                }
-                
-                # Log input structure after device placement
-                print("\nModel inputs after device placement:")
-                for k, v in inputs.items():
-                    if isinstance(v, torch.Tensor):
-                        print(f"{k} shape: {v.shape}, dtype: {v.dtype}, device: {v.device}")
-                
-                # Generate
-                print("\nGenerating with settings:", {
-                    "max_new_tokens": request.max_new_tokens,
-                    "temperature": request.temperature,
-                    "top_p": request.top_p
-                })
-                
-                with torch.inference_mode():
-                    outputs = model.generate(
-                        **inputs,
-                        max_new_tokens=request.max_new_tokens,
-                        do_sample=request.do_sample,
-                        temperature=request.temperature,
-                        top_p=request.top_p,
-                        use_cache=True
+                try:
+                    # Process video and text together in one call
+                    print("Processing with instruction:", request.instruction)
+                    processor_output = processor(
+                        text=f"<video>\n{request.instruction}",
+                        images=video_path,  # Tarsier processor expects 'images' parameter
+                        return_tensors="pt"
                     )
+                    
+                    print("\nProcessor output keys:", processor_output.keys())
+                    for k, v in processor_output.items():
+                        if isinstance(v, torch.Tensor):
+                            print(f"{k} shape: {v.shape}, dtype: {v.dtype}, device: {v.device}")
+                    
+                    # Let the model handle device placement
+                    inputs = {
+                        k: v.to(model.device) if isinstance(v, torch.Tensor) else v 
+                        for k, v in processor_output.items()
+                    }
+                    
+                    # Log input structure after device placement
+                    print("\nModel inputs after device placement:")
+                    for k, v in inputs.items():
+                        if isinstance(v, torch.Tensor):
+                            print(f"{k} shape: {v.shape}, dtype: {v.dtype}, device: {v.device}")
+                    
+                    # Generate
+                    print("\nGenerating with settings:", {
+                        "max_new_tokens": request.max_new_tokens,
+                        "temperature": request.temperature,
+                        "top_p": request.top_p
+                    })
+                    
+                    with torch.inference_mode():
+                        outputs = model.generate(
+                            **inputs,
+                            max_new_tokens=request.max_new_tokens,
+                            do_sample=request.do_sample,
+                            temperature=request.temperature,
+                            top_p=request.top_p,
+                            use_cache=True
+                        )
+                except Exception as e:
+                    print(f"Error processing video: {str(e)}")
+                    raise HTTPException(status_code=500, detail=str(e))
                 
                 print(f"\nGeneration output shape: {outputs.shape}")
                 
