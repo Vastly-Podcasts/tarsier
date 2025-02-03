@@ -15,7 +15,7 @@ sys.path.append(tarsier_path)
 # Import Tarsier modules
 from tarsier.models.modeling_tarsier import TarsierForConditionalGeneration, LlavaConfig
 from tarsier.dataset.processor import Processor
-from tarsier.dataset.utils import get_visual_type
+from tarsier.dataset.utils import get_visual_type, sample_frame_indices, sample_video, sample_gif, sample_image
 
 app = FastAPI(title="Tarsier Original Implementation API")
 
@@ -47,7 +47,8 @@ def load_model_and_processor(model_name_or_path, max_n_frames=8):
     return model, processor
 
 def process_one(model, processor, prompt, video_file, generate_kwargs):
-    inputs = processor(prompt, video_file, edit_prompt=True, return_prompt=True)
+    # Always use max_n_frames from processor for consistency
+    inputs = processor(prompt, video_file, edit_prompt=True, return_prompt=True, n_frames=processor.max_n_frames)
     if 'prompt' in inputs:
         print(f"Prompt: {inputs.pop('prompt')}")
     inputs = {k:v.to(model.device) for k,v in inputs.items() if v is not None}
@@ -138,7 +139,7 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
                     print("Processing with instruction:", request.instruction)
                     prompt = f"<video>\n{request.instruction}"
                     
-                    # Use Tarsier's process_one function
+                    # Use Tarsier's process_one function with explicit n_frames
                     generated_text = process_one(
                         model=model,
                         processor=processor,
