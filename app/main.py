@@ -121,21 +121,16 @@ async def load_model():
         
         print(f"Found {torch.cuda.device_count()} GPUs")
         
-        # Get config and create device map
-        config = AutoConfig.from_pretrained(cache_dir)
-        device_map = create_device_map(config)
-        
+        # Let HuggingFace handle device placement automatically
         print("Loading model...")
-        # Import here to avoid initial memory allocation
         from transformers import LlavaForConditionalGeneration
         
-        # Load model directly with device map
         model = LlavaForConditionalGeneration.from_pretrained(
             cache_dir,
-            device_map=device_map,
+            device_map="auto",  # Let HF handle device placement
             torch_dtype=torch.bfloat16,
             low_cpu_mem_usage=True,
-            max_memory={0: "40GB", 1: "40GB"}
+            max_memory={0: "38GB", 1: "38GB", "cpu": "50GB"}
         )
         
         print("Model loaded successfully!")
@@ -160,13 +155,11 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
                     return_tensors="pt"
                 )
                 
-                # Move all tensors to GPU 0
+                # Let the model handle device placement
                 inputs = {
-                    "input_ids": processor_output["input_ids"].to("cuda:0"),
-                    "attention_mask": processor_output["attention_mask"].to("cuda:0"),
-                    "pixel_values": processor_output["pixel_values"].to("cuda:0") if "pixel_values" in processor_output else None
+                    k: v.to(model.device) if isinstance(v, torch.Tensor) else v 
+                    for k, v in processor_output.items()
                 }
-                inputs = {k: v for k, v in inputs.items() if v is not None}
                 
                 # Generate
                 with torch.inference_mode():
@@ -200,10 +193,10 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
                 truncation=True
             )
             
-            # Move all tensors to GPU 0
+            # Let the model handle device placement
             inputs = {
-                "input_ids": processor_output["input_ids"].to("cuda:0"),
-                "attention_mask": processor_output["attention_mask"].to("cuda:0")
+                k: v.to(model.device) if isinstance(v, torch.Tensor) else v
+                for k, v in processor_output.items()
             }
             
             # Generate
