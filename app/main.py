@@ -135,7 +135,7 @@ async def load_model():
             device_map=device_map,
             torch_dtype=torch.bfloat16,
             low_cpu_mem_usage=True,
-            max_memory={0: "38GB", 1: "38GB"}
+            max_memory={0: "40GB", 1: "40GB"}
         )
         
         print("Model loaded successfully!")
