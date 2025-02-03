@@ -59,8 +59,22 @@ def load_model_and_processor(model_name_or_path, max_n_frames=8):
     model.eval()
     return model, processor
 
+def debug_sample_frame_indices(start_frame, total_frames: int, n_frames: int):
+    print(f"sample_frame_indices called with: start_frame={start_frame}, total_frames={total_frames}, n_frames={n_frames}")
+    try:
+        result = sample_frame_indices(start_frame, total_frames, n_frames)
+        print(f"sample_frame_indices result: {result}")
+        return result
+    except Exception as e:
+        print(f"Error in sample_frame_indices: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        raise
+
 def process_one(model, processor, prompt, video_file, generate_kwargs):
     try:
+        print(f"Inputs values: model={model}, processor={processor}, prompt={prompt}, video_file={video_file}, generate_kwargs={generate_kwargs}")
+        print(f"Processor max_n_frames: {processor.max_n_frames}")
         
         # Get visual type
         visual_type = get_visual_type(video_file)
@@ -68,15 +82,46 @@ def process_one(model, processor, prompt, video_file, generate_kwargs):
         
         # Load frames with explicit n_frames
         if visual_type == 'video':
-            frames = sample_video(video_file, n_frames=processor.max_n_frames)
+            print(f"Loading video with n_frames={processor.max_n_frames}")
+            try:
+                # Load video
+                vr = decord.VideoReader(video_file, num_threads=1, ctx=decord.cpu(0))
+                total_frames = len(vr)
+                fps = vr.get_avg_fps()
+                print(f"Video loaded. Total frames: {total_frames}, FPS: {fps}")
+                
+                # Calculate frame indices
+                start_frame = 0
+                end_frame = total_frames - 1
+                n_frames = processor.max_n_frames if isinstance(processor.max_n_frames, int) else 8  # Default to 8 if not an integer
+                print(f"Sampling parameters: start_frame={start_frame}, end_frame={end_frame}, n_frames={n_frames}")
+                
+                # Sample frames
+                if n_frames == 1:
+                    frame_indices = [0]
+                else:
+                    frame_indices = [round(i * (end_frame) / (n_frames - 1)) for i in range(n_frames)]
+                print(f"Calculated frame indices: {frame_indices}")
+                
+                # Get frames
+                frames = vr.get_batch(frame_indices).asnumpy()
+                frames = [Image.fromarray(f).convert('RGB') for f in frames]
+                print(f"Successfully sampled {len(frames)} frames from video")
+                
+            except Exception as e:
+                print(f"Error in video sampling: {str(e)}")
+                import traceback
+                print(traceback.format_exc())
+                raise
         elif visual_type == 'gif':
-            frames = sample_gif(video_file, n_frames=processor.max_n_frames)
+            frames = sample_gif(video_file, n_frames=processor.max_n_frames if isinstance(processor.max_n_frames, int) else 8)
         elif visual_type == 'image':
             frames = sample_image(video_file)
         else:
             raise ValueError(f"Unsupported visual type: {visual_type}")
             
         # Process with frames
+        print("Processing frames with processor...")
         inputs = processor(prompt, images=frames, edit_prompt=True, return_prompt=True)
         
         if 'prompt' in inputs:
