@@ -1,74 +1,24 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, HttpUrl
-from transformers import AutoTokenizer, AutoConfig, AutoProcessor
+from transformers import LlavaForConditionalGeneration
 import torch
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, Optional
 import uvicorn
 import tempfile
 import os
-from huggingface_hub import snapshot_download
-import multiprocessing
 import requests
 from urllib.parse import urlparse
+
+from dataset.processor import Processor
+from dataset.utils import get_visual_type
 
 app = FastAPI(title="Tarsier Model API")
 
 # Model configuration
 model_path = "omni-research/Tarsier-34b"
 
-def create_device_map(config):
-    """Create a balanced device map based on actual model configuration"""
-    # Get number of layers from text config
-    try:
-        num_layers = config.text_config.num_hidden_layers
-        vision_layers = config.vision_config.num_hidden_layers
-    except AttributeError:
-        print("Error: 'config' does not have 'text_config' or 'vision_config' attributes.")
-        raise
-    
-    # Validate configuration
-    print(f"\nModel Configuration:")
-    print(f"- Text model layers: {num_layers} (expected: 60)")
-    print(f"- Vision model layers: {vision_layers} (expected: 24)")
-    print(f"- Hidden size: {config.text_config.hidden_size} (expected: 7168)")
-    
-    if num_layers != 60:
-        print(f"WARNING: Unexpected number of text layers: {num_layers}")
-    if vision_layers != 24:
-        print(f"WARNING: Unexpected number of vision layers: {vision_layers}")
-    
-    # Calculate split point - put half on each GPU
-    split_point = num_layers // 2
-    
-    device_map = {
-        "language_model.model.embed_tokens": 0,
-        "language_model.model.norm": 1,
-        "language_model.lm_head": 1,
-        "vision_model": 0,  # Vision processing on first GPU
-        "mm_projector": 0,  # Projector on first GPU
-        "multi_modal_projector": 0,  # Add multi_modal_projector to first GPU
-        "multi_modal_projector.linear_1": 0,
-        "multi_modal_projector.linear_2": 0,
-        "vision_tower": 0,  # Add vision tower to first GPU
-        "vision_tower.vision_model": 0,
-        "vision_tower.vision_model.embeddings": 0,
-        "vision_tower.vision_model.encoder": 0,
-        "vision_tower.vision_model.layernorm": 0,
-        "vision_tower.vision_model.pooler": 0
-    }
-    
-    # Distribute layers evenly
-    for i in range(num_layers):
-        device_map[f"language_model.model.layers.{i}"] = 0 if i < split_point else 1
-    
-    print(f"\nDevice Mapping:")
-    print(f"- GPU 0: {split_point} text layers + vision model ({vision_layers} layers)")
-    print(f"- GPU 1: {num_layers - split_point} text layers")
-    return device_map
-
 # Global variables
 model = None
-tokenizer = None
 processor = None
 
 class GenerateRequest(BaseModel):
@@ -99,48 +49,39 @@ async def download_video(url: str) -> str:
 
 @app.on_event("startup")
 async def load_model():
-    global model, tokenizer, processor
+    global model, processor
     try:
-        print("Loading tokenizer and processor...")
+        print("Loading model and processor...")
         
         # Set memory optimization flags
         os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
         
-        # Use snapshot_download for parallel downloading
-        num_workers = min(16, multiprocessing.cpu_count() // 2)  # Use half of CPU cores, max 16
-        print(f"Downloading model files with {num_workers} threads...")
-        cache_dir = snapshot_download(
+        # Initialize processor first
+        processor = Processor(
             model_path,
-            max_workers=num_workers,
-            resume_download=True
+            max_n_frames=8,
+            do_image_padding=False
         )
-        print("Download complete, loading model components...")
-        
-        tokenizer = AutoTokenizer.from_pretrained(cache_dir)
-        processor = AutoProcessor.from_pretrained(cache_dir)
         
         print(f"Found {torch.cuda.device_count()} GPUs")
         
-        # Let HuggingFace handle device placement automatically
-        print("Loading model...")
-        from transformers import LlavaForConditionalGeneration
-        
+        # Load model with automatic device mapping
         model = LlavaForConditionalGeneration.from_pretrained(
-            cache_dir,
-            device_map="auto",  # Let HF handle device placement
+            model_path,
+            device_map="auto",
             torch_dtype=torch.bfloat16,
             low_cpu_mem_usage=True,
             max_memory={0: "38GB", 1: "38GB", "cpu": "50GB"}
         )
         
-        print("Model loaded successfully!")
+        print("Model and processor loaded successfully!")
     except Exception as e:
         print(f"Error loading model: {str(e)}")
         raise
 
 @app.post("/generate")
 async def generate(request: GenerateRequest) -> Dict[str, Any]:
-    if model is None or tokenizer is None or processor is None:
+    if model is None or processor is None:
         raise HTTPException(status_code=503, detail="Model not loaded")
     
     try:
@@ -160,27 +101,26 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
                 if video_size == 0:
                     raise HTTPException(status_code=400, detail="Video file is empty")
                 
-                # First process the video frames
-                print("Processing video frames...")
+                # Process video using Tarsier's processor
                 try:
-                    # Process video and text together in one call
                     print("Processing with instruction:", request.instruction)
-                    processor_output = processor(
-                        text=f"<video>\n{request.instruction}",
-                        images=video_path,  # Tarsier processor expects 'images' parameter
-                        return_tensors="pt"
+                    inputs = processor(
+                        prompt=f"<video>\n{request.instruction}",
+                        visual_data_file=video_path,
+                        edit_prompt=True,
+                        return_prompt=True
                     )
                     
-                    print("\nProcessor output keys:", processor_output.keys())
-                    for k, v in processor_output.items():
+                    if 'prompt' in inputs:
+                        print(f"Processed prompt: {inputs.pop('prompt')}")
+                    
+                    print("\nProcessor output keys:", inputs.keys())
+                    for k, v in inputs.items():
                         if isinstance(v, torch.Tensor):
                             print(f"{k} shape: {v.shape}, dtype: {v.dtype}, device: {v.device}")
                     
-                    # Let the model handle device placement
-                    inputs = {
-                        k: v.to(model.device) if isinstance(v, torch.Tensor) else v 
-                        for k, v in processor_output.items()
-                    }
+                    # Move to model device
+                    inputs = {k:v.to(model.device) for k,v in inputs.items() if v is not None}
                     
                     # Log input structure after device placement
                     print("\nModel inputs after device placement:")
@@ -216,34 +156,29 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
                 print(f"Input length: {input_length}")
                 
                 # Decode only the new tokens
-                generated_text = tokenizer.decode(
+                generated_text = processor.tokenizer.decode(
                     outputs[0][input_length:],
                     skip_special_tokens=True
                 )
                 print(f"\nGenerated text: {generated_text}")
-            except Exception as e:
-                print(f"Error processing video: {str(e)}")
-                raise HTTPException(status_code=500, detail=str(e))
-                
             finally:
                 # Cleanup temporary video file
                 print(f"Cleaning up temporary file: {video_path}")
                 os.unlink(video_path)
         else:
+            # Text-only path
             try:
-                # Text-only path
-                processor_output = tokenizer(
-                    request.instruction,
-                    return_tensors="pt",
-                    padding=True,
-                    truncation=True
+                inputs = processor(
+                    prompt=request.instruction,
+                    edit_prompt=True,
+                    return_prompt=True
                 )
                 
-                # Let the model handle device placement
-                inputs = {
-                    k: v.to(model.device) if isinstance(v, torch.Tensor) else v
-                    for k, v in processor_output.items()
-                }
+                if 'prompt' in inputs:
+                    print(f"Processed prompt: {inputs.pop('prompt')}")
+                
+                # Move to model device
+                inputs = {k:v.to(model.device) for k,v in inputs.items() if v is not None}
                 
                 # Generate
                 with torch.inference_mode():
@@ -261,14 +196,14 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
                 input_length = inputs["input_ids"].shape[1]
                 
                 # Decode only the new tokens
-                generated_text = tokenizer.decode(
+                generated_text = processor.tokenizer.decode(
                     outputs[0][input_length:],
                     skip_special_tokens=True
                 )
             except Exception as e:
                 print(f"Error processing text: {str(e)}")
                 raise HTTPException(status_code=500, detail=str(e))
-            
+        
         return {
             "generated_text": generated_text,
             "status": "success"
@@ -281,7 +216,7 @@ async def health_check():
     return {
         "status": "healthy",
         "model_loaded": model is not None,
-        "device": str(model.device) if model is not None else "not loaded"
+        "device": str(next(model.parameters()).device) if model is not None else "not loaded"
     }
 
 if __name__ == "__main__":
