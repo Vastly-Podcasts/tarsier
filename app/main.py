@@ -9,17 +9,10 @@ import os
 import requests
 from urllib.parse import urlparse
 
-from dataset.processor import Processor
-from dataset.utils import get_visual_type
-
 app = FastAPI(title="Tarsier Model API")
 
 # Model configuration
 model_path = "omni-research/Tarsier-34b"
-
-# Global variables
-model = None
-processor = None
 
 class GenerateRequest(BaseModel):
     instruction: str  # User must provide their own instruction/query
@@ -47,37 +40,6 @@ async def download_video(url: str) -> str:
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to download video: {str(e)}")
 
-@app.on_event("startup")
-async def load_model():
-    global model, processor
-    try:
-        print("Loading model and processor...")
-        
-        # Set memory optimization flags
-        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-        
-        # Initialize processor first
-        processor = Processor(
-            model_path,
-            max_n_frames=8,
-            do_image_padding=False
-        )
-        
-        print(f"Found {torch.cuda.device_count()} GPUs")
-        
-        # Load model with automatic device mapping
-        model = LlavaForConditionalGeneration.from_pretrained(
-            model_path,
-            device_map="auto",
-            torch_dtype=torch.bfloat16,
-            low_cpu_mem_usage=True,
-            max_memory={0: "38GB", 1: "38GB", "cpu": "50GB"}
-        )
-        
-        print("Model and processor loaded successfully!")
-    except Exception as e:
-        print(f"Error loading model: {str(e)}")
-        raise
 
 @app.post("/generate")
 async def generate(request: GenerateRequest) -> Dict[str, Any]:

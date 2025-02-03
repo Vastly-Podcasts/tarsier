@@ -24,9 +24,13 @@ app = FastAPI(title="Tarsier Original Implementation API")
 # Model configuration
 model_path = "omni-research/Tarsier-34b"
 
-# Global variables
-model = None
-processor = None
+class ModelState:
+    def __init__(self):
+        self.model = None
+        self.processor = None
+
+# Create a single instance to hold model state
+model_state = ModelState()
 
 def load_model_and_processor(model_name_or_path, max_n_frames=8):
     print(f"Load model and processor from: {model_name_or_path}; with max_n_frames={max_n_frames}")
@@ -169,18 +173,14 @@ class GenerateRequest(BaseModel):
 
 @app.on_event("startup")
 async def load_model():
-    global model, processor
     try:
         print("Loading model and processor using Tarsier's implementation...")
         
         # Set memory optimization flags
         os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
         
-        # Load model and processor using Tarsier's utility
-        model, processor = load_model_and_processor(
-            model_path,
-            max_n_frames=8
-        )
+        # Load model and processor into our state object
+        model_state.model, model_state.processor = load_model_and_processor(model_path, max_n_frames=8)
         
         print("Model and processor loaded successfully!")
     except Exception as e:
@@ -189,7 +189,7 @@ async def load_model():
 
 @app.post("/generate")
 async def generate(request: GenerateRequest) -> Dict[str, Any]:
-    if model is None or processor is None:
+    if model_state.model is None or model_state.processor is None:
         raise HTTPException(status_code=503, detail="Model not loaded")
     
     try:
@@ -225,8 +225,8 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
                     
                     # Use Tarsier's process_one function with explicit n_frames
                     generated_text = process_one(
-                        model=model,
-                        processor=processor,
+                        model=model_state.model,
+                        processor=model_state.processor,
                         prompt=prompt,
                         video_file=video_path,
                         generate_kwargs=generate_kwargs
@@ -247,8 +247,8 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
                 # Format prompt according to Tarsier's expected format
                 prompt = f"USER: {request.instruction} ASSISTANT: "
                 generated_text = process_one(
-                    model=model,
-                    processor=processor,
+                    model=model_state.processor,
+                    processor=model_state.processor,
                     prompt=prompt,
                     video_file=None,
                     generate_kwargs=generate_kwargs
@@ -268,8 +268,8 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
 async def health_check():
     return {
         "status": "healthy",
-        "model_loaded": model is not None,
-        "device": str(next(model.parameters()).device) if model is not None else "not loaded"
+        "model_loaded": model_state.model is not None,
+        "device": str(next(model_state.model.parameters()).device) if model_state.model is not None else "not loaded"
     }
 
 if __name__ == "__main__":
