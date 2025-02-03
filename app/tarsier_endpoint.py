@@ -28,14 +28,23 @@ processor = None
 
 def load_model_and_processor(model_name_or_path, max_n_frames=8):
     print(f"Load model and processor from: {model_name_or_path}; with max_n_frames={max_n_frames}")
+    
+    # Initialize processor with explicit max_n_frames
     processor = Processor(
         model_name_or_path,
         max_n_frames=max_n_frames,
+        max_seq_len=None,  # Let it use model's max length
+        add_sep=False,     # Don't add separator tokens
+        do_image_padding=False  # Use resize instead of padding
     )
+    
+    # Load model config
     model_config = LlavaConfig.from_pretrained(
         model_name_or_path,
         trust_remote_code=True,
     )
+    
+    # Load model with specific settings
     model = TarsierForConditionalGeneration.from_pretrained(
         model_name_or_path,
         config=model_config,
@@ -43,25 +52,44 @@ def load_model_and_processor(model_name_or_path, max_n_frames=8):
         torch_dtype=torch.float16,
         trust_remote_code=True
     )
+    
+    # Set model to eval mode
     model.eval()
     return model, processor
 
 def process_one(model, processor: Processor, prompt, video_file, generate_kwargs):
-    # Always use max_n_frames from processor for consistency
     try:
-        inputs = processor(prompt, video_file, edit_prompt=True, return_prompt=True, n_frames=processor.max_n_frames)
+        # Process inputs with explicit n_frames
+        inputs = processor(
+            prompt=prompt, 
+            visual_data_file=video_file, 
+            edit_prompt=True, 
+            return_prompt=True
+        )
+        
+        if 'prompt' in inputs:
+            processed_prompt = inputs.pop('prompt')
+            print(f"Processed prompt: {processed_prompt}")
+        
+        # Move inputs to device
+        inputs = {k:v.to(model.device) for k,v in inputs.items() if v is not None}
+        
+        # Generate
+        outputs = model.generate(
+            **inputs,
+            **generate_kwargs,
+        )
+        
+        # Decode output
+        output_text = processor.tokenizer.decode(
+            outputs[0][inputs['input_ids'][0].shape[0]:],
+            skip_special_tokens=True
+        )
+        return output_text
+        
     except Exception as e:
-        print(f"Error processing video: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-    if 'prompt' in inputs:
-        print(f"Prompt: {inputs.pop('prompt')}")
-    inputs = {k:v.to(model.device) for k,v in inputs.items() if v is not None}
-    outputs = model.generate(
-        **inputs,
-        **generate_kwargs,
-    )
-    output_text = processor.tokenizer.decode(outputs[0][inputs['input_ids'][0].shape[0]:], skip_special_tokens=True)
-    return output_text
+        print(f"Error in process_one: {str(e)}")
+        raise
 
 class GenerateRequest(BaseModel):
     instruction: str
