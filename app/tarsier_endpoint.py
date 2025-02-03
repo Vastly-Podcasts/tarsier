@@ -7,6 +7,7 @@ import os
 import requests
 from urllib.parse import urlparse
 import sys
+from tarsier.dataset.processor import Processor
 
 # Add Tarsier to path
 tarsier_path = os.path.dirname(os.path.dirname(__file__))
@@ -46,7 +47,7 @@ def load_model_and_processor(model_name_or_path, max_n_frames=8):
     model.eval()
     return model, processor
 
-def process_one(model, processor, prompt, video_file, generate_kwargs):
+def process_one(model, processor: Processor, prompt, video_file, generate_kwargs):
     # Always use max_n_frames from processor for consistency
     try:
         inputs = processor(prompt, video_file, edit_prompt=True, return_prompt=True, n_frames=processor.max_n_frames)
