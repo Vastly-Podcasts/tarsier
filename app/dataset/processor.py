@@ -56,7 +56,7 @@ class Processor(object):
             do_image_padding=False,
         ):
         self.max_n_frames = max_n_frames
-        self.max_seq_len = max_seq_len,
+        self.max_seq_len = max_seq_len
         self.add_sep = add_sep
         self.do_image_padding = do_image_padding
         if not self.do_image_padding:
@@ -89,8 +89,8 @@ class Processor(object):
             image_token_num = len(re.findall('<image>', prompt, re.S))
             if image_token_num == 0:
                 prompt_parts = re.findall(r'USER:(.*)ASSISTANT:(.*)', prompt, re.S)
-                if prompt_parts and len(prompt_parts) == 2:
-                    p1, p2 = prompt_parts
+                if prompt_parts and len(prompt_parts) == 1:
+                    p1, p2 = prompt_parts[0]
                 else:
                     p1 = prompt
                     p2 = ''
@@ -110,7 +110,10 @@ class Processor(object):
         
     def load_images(self, visual_data_path, n_frames=None, start_time=0, end_time=-1):
         sampler = self.select_frames_sampler(visual_data_path)
-        return sampler(visual_data_path, n_frames=min(n_frames, self.max_n_frames) if n_frames else self.max_n_frames, start_time=start_time, end_time=end_time)
+        if n_frames is None:
+            n_frames = self.max_n_frames
+        print(f"Using sampler for type: {get_visual_type(visual_data_path)} with n_frames={n_frames}")
+        return sampler(visual_data_path, n_frames=n_frames, start_time=start_time, end_time=end_time)
 
     def get_pixel_values(self, images):
         if images is not None and len(images) > 0:
@@ -126,19 +129,9 @@ class Processor(object):
         prompt_ids = torch.tensor(prompt_ids, dtype=torch.long).unsqueeze(dim=0)
         return prompt_ids
 
-    def get_inputs(self, prompt, visual_data_file=None, images=None, n_frames=8, edit_prompt=False, return_prompt=False):
-        """Get model inputs from prompt and visual data.
-        
-        Args:
-            prompt (str): Text prompt
-            visual_data_file (str, optional): Path to video/image file
-            images (List[PIL.Image], optional): List of PIL images
-            n_frames (int): Number of frames to sample (default: 8)
-            edit_prompt (bool): Whether to process prompt with visual tokens
-            return_prompt (bool): Whether to return processed prompt
-        """
-        if images is None:
-            images = self.load_images(visual_data_file, n_frames=n_frames) if visual_data_file else None
+    def get_inputs(self, prompt, visual_data_file=None, images=None, n_frames=None, edit_prompt=False, return_prompt=False):
+        if images is None and visual_data_file:
+            images = self.load_images(visual_data_file, n_frames)
         if edit_prompt:
             prompt = self.process_prompt(prompt, images)
         text_inputs = self.get_text_inputs(prompt)
@@ -151,5 +144,5 @@ class Processor(object):
             inputs['prompt'] = prompt
         return inputs
 
-    def __call__(self, prompt, visual_data_file=None, images=None, n_frames=8, edit_prompt=False, return_prompt=False):
+    def __call__(self, prompt, visual_data_file=None, images=None, n_frames=None, edit_prompt=False, return_prompt=False):
         return self.get_inputs(prompt, visual_data_file, images, n_frames, edit_prompt, return_prompt) 
