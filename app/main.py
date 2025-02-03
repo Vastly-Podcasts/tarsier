@@ -65,21 +65,12 @@ async def load_model():
         
         print(f"Found {torch.cuda.device_count()} GPUs")
         
-        # First load model without device map
+        # Load model with automatic device mapping
         model = LlavaForConditionalGeneration.from_pretrained(
             model_path,
-            torch_dtype=torch.bfloat16,
-            low_cpu_mem_usage=True
-        )
-        
-        # Tie weights before device mapping
-        print("Tying weights...")
-        model.tie_weights()
-        
-        # Now set up device mapping
-        print("Setting up device mapping...")
-        model = model.dispatch_to(
             device_map="auto",
+            torch_dtype=torch.bfloat16,
+            low_cpu_mem_usage=True,
             max_memory={0: "38GB", 1: "38GB", "cpu": "50GB"}
         )
         
