@@ -111,8 +111,8 @@ async def load_model():
         print(f"Downloading model files with {num_workers} threads...")
         cache_dir = snapshot_download(
             model_path,
-            max_workers=num_workers,  # Use half of available CPU cores
-            resume_download=True  # Resume if interrupted
+            max_workers=num_workers,
+            resume_download=True
         )
         print("Download complete, loading model components...")
         
@@ -135,35 +135,13 @@ async def load_model():
             device_map=device_map,
             torch_dtype=torch.bfloat16,
             low_cpu_mem_usage=True,
-            max_memory={0: "35GB", 1: "35GB", "cpu": "50GB"}
+            max_memory={0: "38GB", 1: "38GB"}
         )
         
         print("Model loaded successfully!")
     except Exception as e:
         print(f"Error loading model: {str(e)}")
         raise
-
-def move_to_device(obj, device_map=None):
-    """Move tensors to appropriate devices based on device map or CPU."""
-    if device_map is None:
-        # If no device map, keep on CPU
-        return obj
-        
-    if isinstance(obj, torch.Tensor):
-        # Try to find appropriate device from map, fallback to CPU
-        device = "cpu"
-        for key, dev in device_map.items():
-            if key in ["vision_model", "vision_tower", "vision_tower.vision_model"]:
-                device = f"cuda:{dev}"
-                break
-        return obj.to(device)
-    elif isinstance(obj, dict):
-        return {key: move_to_device(value, device_map) for key, value in obj.items()}
-    elif isinstance(obj, list):
-        return [move_to_device(item, device_map) for item in obj]
-    elif isinstance(obj, tuple):
-        return tuple(move_to_device(item, device_map) for item in obj)
-    return obj
 
 @app.post("/generate")
 async def generate(request: GenerateRequest) -> Dict[str, Any]:
@@ -175,15 +153,20 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
         if request.video_url:
             video_path = await download_video(str(request.video_url))
             try:
-                # Video processing path
-                inputs = processor(
+                # Process video and text together
+                processor_output = processor(
                     text=request.instruction,
                     videos=video_path,
                     return_tensors="pt"
                 )
-                # Move input tensors to GPU 0 where vision processing happens
-                inputs = {k: v.to("cuda:0") if isinstance(v, torch.Tensor) else v 
-                         for k, v in inputs.items()}
+                
+                # Move all tensors to GPU 0
+                inputs = {
+                    "input_ids": processor_output["input_ids"].to("cuda:0"),
+                    "attention_mask": processor_output["attention_mask"].to("cuda:0"),
+                    "pixel_values": processor_output["pixel_values"].to("cuda:0") if "pixel_values" in processor_output else None
+                }
+                inputs = {k: v for k, v in inputs.items() if v is not None}
                 
                 # Generate
                 with torch.inference_mode():
@@ -198,10 +181,11 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
                 
                 # Move output to CPU for decoding
                 outputs = outputs.cpu()
+                input_length = inputs["input_ids"].shape[1]
                 
                 # Decode only the new tokens
                 generated_text = tokenizer.decode(
-                    outputs[0][inputs['input_ids'].shape[0]:],
+                    outputs[0][input_length:],
                     skip_special_tokens=True
                 )
             finally:
@@ -209,14 +193,18 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
                 os.unlink(video_path)
         else:
             # Text-only path
-            inputs = tokenizer(
+            processor_output = tokenizer(
                 request.instruction,
                 return_tensors="pt",
                 padding=True,
                 truncation=True
             )
-            # Move input tensors to GPU 0 where embeddings are
-            inputs = {k: v.to("cuda:0") for k, v in inputs.items()}
+            
+            # Move all tensors to GPU 0
+            inputs = {
+                "input_ids": processor_output["input_ids"].to("cuda:0"),
+                "attention_mask": processor_output["attention_mask"].to("cuda:0")
+            }
             
             # Generate
             with torch.inference_mode():
@@ -231,10 +219,11 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
             
             # Move output to CPU for decoding
             outputs = outputs.cpu()
+            input_length = inputs["input_ids"].shape[1]
             
             # Decode only the new tokens
             generated_text = tokenizer.decode(
-                outputs[0][inputs['input_ids'].shape[1]:],
+                outputs[0][input_length:],
                 skip_special_tokens=True
             )
         
