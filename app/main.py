@@ -234,47 +234,54 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
                     skip_special_tokens=True
                 )
                 print(f"\nGenerated text: {generated_text}")
+            except Exception as e:
+                print(f"Error processing video: {str(e)}")
+                raise HTTPException(status_code=500, detail=str(e))
                 
             finally:
                 # Cleanup temporary video file
                 print(f"Cleaning up temporary file: {video_path}")
                 os.unlink(video_path)
         else:
-            # Text-only path
-            processor_output = tokenizer(
-                request.instruction,
-                return_tensors="pt",
-                padding=True,
-                truncation=True
-            )
-            
-            # Let the model handle device placement
-            inputs = {
-                k: v.to(model.device) if isinstance(v, torch.Tensor) else v
-                for k, v in processor_output.items()
-            }
-            
-            # Generate
-            with torch.inference_mode():
-                outputs = model.generate(
-                    **inputs,
-                    max_new_tokens=request.max_new_tokens,
-                    do_sample=request.do_sample,
-                    temperature=request.temperature,
-                    top_p=request.top_p,
-                    use_cache=True
+            try:
+                # Text-only path
+                processor_output = tokenizer(
+                    request.instruction,
+                    return_tensors="pt",
+                    padding=True,
+                    truncation=True
                 )
+                
+                # Let the model handle device placement
+                inputs = {
+                    k: v.to(model.device) if isinstance(v, torch.Tensor) else v
+                    for k, v in processor_output.items()
+                }
+                
+                # Generate
+                with torch.inference_mode():
+                    outputs = model.generate(
+                        **inputs,
+                        max_new_tokens=request.max_new_tokens,
+                        do_sample=request.do_sample,
+                        temperature=request.temperature,
+                        top_p=request.top_p,
+                        use_cache=True
+                    )
+                
+                # Move output to CPU for decoding
+                outputs = outputs.cpu()
+                input_length = inputs["input_ids"].shape[1]
+                
+                # Decode only the new tokens
+                generated_text = tokenizer.decode(
+                    outputs[0][input_length:],
+                    skip_special_tokens=True
+                )
+            except Exception as e:
+                print(f"Error processing text: {str(e)}")
+                raise HTTPException(status_code=500, detail=str(e))
             
-            # Move output to CPU for decoding
-            outputs = outputs.cpu()
-            input_length = inputs["input_ids"].shape[1]
-            
-            # Decode only the new tokens
-            generated_text = tokenizer.decode(
-                outputs[0][input_length:],
-                skip_special_tokens=True
-            )
-        
         return {
             "generated_text": generated_text,
             "status": "success"
