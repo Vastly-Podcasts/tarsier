@@ -61,7 +61,6 @@ def load_model_and_processor(model_name_or_path, max_n_frames=8):
 
 def process_one(model, processor, prompt, video_file, generate_kwargs):
     try:
-        print(f"Inputs values: model={model}, processor={processor}, prompt={prompt}, video_file={video_file}, generate_kwargs={generate_kwargs}")
         
         # Get visual type
         visual_type = get_visual_type(video_file)
