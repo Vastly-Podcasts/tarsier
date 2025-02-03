@@ -78,7 +78,7 @@ async def load_model():
         
         # Now set up device mapping
         print("Setting up device mapping...")
-        model = model.to_device_map(
+        model = model.dispatch_to(
             device_map="auto",
             max_memory={0: "38GB", 1: "38GB", "cpu": "50GB"}
         )
