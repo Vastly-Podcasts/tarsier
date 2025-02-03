@@ -1,12 +1,14 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, HttpUrl
 import torch
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import tempfile
 import os
 import requests
 from urllib.parse import urlparse
 import sys
+import decord
+from PIL import Image
 
 # Add Tarsier to path
 tarsier_path = os.path.dirname(os.path.dirname(__file__))
@@ -64,13 +66,14 @@ def process_one(model, processor: Processor, prompt, video_file, generate_kwargs
             prompt=prompt, 
             visual_data_file=video_file, 
             edit_prompt=True, 
-            return_prompt=True
+            return_prompt=True,
+            n_frames=processor.max_n_frames  # Explicitly pass max_n_frames
         )
         
         if 'prompt' in inputs:
             processed_prompt = inputs.pop('prompt')
             print(f"Processed prompt: {processed_prompt}")
-        
+            
         # Move inputs to device
         inputs = {k:v.to(model.device) for k,v in inputs.items() if v is not None}
         
@@ -90,6 +93,52 @@ def process_one(model, processor: Processor, prompt, video_file, generate_kwargs
     except Exception as e:
         print(f"Error in process_one: {str(e)}")
         raise
+
+def sample_frame_indices(start_frame, total_frames: int, n_frames: int):
+    """Sample frame indices with proper handling of n_frames."""
+    if n_frames is None:
+        n_frames = 8  # Default to 8 frames if None
+    if n_frames == 1:
+        return [0]  # sample first frame in default
+    sample_ids = [round(i * (total_frames - 1) / (n_frames - 1)) for i in range(n_frames)]
+    sample_ids = [i + start_frame for i in sample_ids]
+    return sample_ids
+
+def sample_video(
+    video_path: str, 
+    n_frames: int = 8,  # Default to 8 frames
+    start_time: int = 0,
+    end_time: int = -1
+    ) -> List[Image.Image]:
+    """Sample frames from video with proper n_frames handling."""
+    assert os.path.exists(video_path), f"File not found: {video_path}"
+    vr = decord.VideoReader(video_path, num_threads=1, ctx=decord.cpu(0))
+    vr.seek(0)
+    total_frames = len(vr)
+    fps = vr.get_avg_fps()
+    print(f"Video loaded: {total_frames} frames, {fps:.2f} fps")
+
+    start_frame = 0
+    end_frame = total_frames - 1
+    if start_time > 0:
+        start_frame = min((total_frames-1), int(fps*start_time))
+    if end_time > 0:
+        end_frame = max(start_frame, int(fps*end_time))
+        end_frame = min(end_frame, (total_frames-1))
+    
+    if n_frames is None:
+        n_frames = 8  # Default to 8 frames if None
+    
+    frame_indices = sample_frame_indices(
+        start_frame=start_frame,
+        total_frames=end_frame - start_frame + 1,
+        n_frames=n_frames
+    )
+    print(f"Sampling {n_frames} frames at indices: {frame_indices}")
+
+    frames = vr.get_batch(frame_indices).asnumpy()
+    frames = [Image.fromarray(f).convert('RGB') for f in frames]
+    return frames
 
 class GenerateRequest(BaseModel):
     instruction: str
