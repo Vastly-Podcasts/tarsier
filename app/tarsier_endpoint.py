@@ -12,8 +12,10 @@ import sys
 tarsier_path = os.path.dirname(os.path.dirname(__file__))
 sys.path.append(tarsier_path)
 
-from tarsier.tasks.utils import load_model_and_processor
-from tarsier.tasks.inference_quick_start import process_one
+# Import Tarsier modules
+from tarsier.models.modeling_tarsier import TarsierForConditionalGeneration, LlavaConfig
+from tarsier.dataset.processor import Processor
+from tarsier.dataset.utils import get_visual_type
 
 app = FastAPI(title="Tarsier Original Implementation API")
 
@@ -23,6 +25,38 @@ model_path = "omni-research/Tarsier-34b"
 # Global variables
 model = None
 processor = None
+
+def load_model_and_processor(model_name_or_path, max_n_frames=8):
+    print(f"Load model and processor from: {model_name_or_path}; with max_n_frames={max_n_frames}")
+    processor = Processor(
+        model_name_or_path,
+        max_n_frames=max_n_frames,
+    )
+    model_config = LlavaConfig.from_pretrained(
+        model_name_or_path,
+        trust_remote_code=True,
+    )
+    model = TarsierForConditionalGeneration.from_pretrained(
+        model_name_or_path,
+        config=model_config,
+        device_map='auto',
+        torch_dtype=torch.float16,
+        trust_remote_code=True
+    )
+    model.eval()
+    return model, processor
+
+def process_one(model, processor, prompt, video_file, generate_kwargs):
+    inputs = processor(prompt, video_file, edit_prompt=True, return_prompt=True)
+    if 'prompt' in inputs:
+        print(f"Prompt: {inputs.pop('prompt')}")
+    inputs = {k:v.to(model.device) for k,v in inputs.items() if v is not None}
+    outputs = model.generate(
+        **inputs,
+        **generate_kwargs,
+    )
+    output_text = processor.tokenizer.decode(outputs[0][inputs['input_ids'][0].shape[0]:], skip_special_tokens=True)
+    return output_text
 
 class GenerateRequest(BaseModel):
     instruction: str
@@ -150,4 +184,8 @@ async def health_check():
         "status": "healthy",
         "model_loaded": model is not None,
         "device": str(next(model.parameters()).device) if model is not None else "not loaded"
-    } 
+    }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000) 
