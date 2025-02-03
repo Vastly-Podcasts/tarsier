@@ -175,8 +175,8 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
                     videos=video_path,
                     return_tensors="pt"
                 )
-                # Move tensors to appropriate devices
-                inputs = move_to_device(inputs, model.hf_device_map)
+                # Move all input tensors to GPU 0 where vision model is
+                inputs = {k: v.to("cuda:0") if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
                 
                 # Generate
                 with torch.inference_mode():
@@ -188,6 +188,9 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
                         top_p=request.top_p,
                         use_cache=True
                     )
+                
+                # Move output to CPU for decoding
+                outputs = outputs.cpu()
                 
                 # Decode only the new tokens
                 generated_text = tokenizer.decode(
@@ -205,7 +208,7 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
                 padding=True,
                 truncation=True
             )
-            # For text-only, put everything on GPU 0 where the embeddings are
+            # Move all input tensors to GPU 0 where embeddings are
             inputs = {k: v.to("cuda:0") for k, v in inputs.items()}
             
             # Generate
