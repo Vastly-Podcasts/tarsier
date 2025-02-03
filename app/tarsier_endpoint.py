@@ -59,12 +59,26 @@ def load_model_and_processor(model_name_or_path, max_n_frames=8):
     model.eval()
     return model, processor
 
-def process_one(model, processor, prompt, video_file, generate_kwargs):
+def process_one(model, processor: Processor, prompt, video_file, generate_kwargs):
     try:
         print(f"Inputs values: model={model}, processor={processor}, prompt={prompt}, video_file={video_file}, generate_kwargs={generate_kwargs}")
-        inputs = processor(prompt, video_file, edit_prompt=True, return_prompt=True)
+        
+        # Ensure n_frames is properly set from processor
+        n_frames = processor.max_n_frames if hasattr(processor, 'max_n_frames') else 8
+        print(f"Using n_frames={n_frames} from processor")
+        
+        # Process with explicit n_frames
+        inputs = processor(
+            prompt, 
+            video_file, 
+            edit_prompt=True, 
+            return_prompt=True,
+            n_frames=n_frames  # Explicitly pass n_frames
+        )
+        
         if 'prompt' in inputs:
             print(f"Prompt: {inputs.pop('prompt')}")
+        
         inputs = {k:v.to(model.device) for k,v in inputs.items() if v is not None}
         outputs = model.generate(
             **inputs,
