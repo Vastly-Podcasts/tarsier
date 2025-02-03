@@ -103,6 +103,9 @@ async def load_model():
     try:
         print("Loading tokenizer and processor...")
         
+        # Set memory optimization flags
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+        
         # Use snapshot_download for parallel downloading
         num_workers = min(16, multiprocessing.cpu_count() // 2)  # Use half of CPU cores, max 16
         print(f"Downloading model files with {num_workers} threads...")
@@ -113,8 +116,8 @@ async def load_model():
         )
         print("Download complete, loading model components...")
         
-        tokenizer = AutoTokenizer.from_pretrained(cache_dir, trust_remote_code=True)
-        processor = AutoProcessor.from_pretrained(cache_dir, trust_remote_code=True)
+        tokenizer = AutoTokenizer.from_pretrained(cache_dir)
+        processor = AutoProcessor.from_pretrained(cache_dir)
         
         print(f"Found {torch.cuda.device_count()} GPUs")
         
@@ -126,25 +129,14 @@ async def load_model():
         # Import here to avoid initial memory allocation
         from transformers import LlavaForConditionalGeneration
         
-        # First load model to CPU
+        # Load model directly with device map
         model = LlavaForConditionalGeneration.from_pretrained(
             cache_dir,
+            device_map=device_map,
             torch_dtype=torch.bfloat16,
             low_cpu_mem_usage=True,
-            trust_remote_code=True
+            max_memory={0: "35GB", 1: "35GB", "cpu": "50GB"}
         )
-        
-        # Then move to GPUs using device map
-        for param_name, device in device_map.items():
-            try:
-                module = model
-                for attr in param_name.split('.'):
-                    if hasattr(module, attr):
-                        module = getattr(module, attr)
-                if isinstance(module, torch.nn.Module):
-                    module.to(f"cuda:{device}")
-            except Exception as e:
-                print(f"Warning: Could not move {param_name} to cuda:{device}: {e}")
         
         print("Model loaded successfully!")
     except Exception as e:
@@ -189,9 +181,8 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
                     videos=video_path,
                     return_tensors="pt"
                 )
-                # Move input tensors to the same device as model's vision tower
-                vision_device = next(model.vision_tower.parameters()).device
-                inputs = {k: v.to(vision_device) if isinstance(v, torch.Tensor) else v 
+                # Move input tensors to GPU 0 where vision processing happens
+                inputs = {k: v.to("cuda:0") if isinstance(v, torch.Tensor) else v 
                          for k, v in inputs.items()}
                 
                 # Generate
@@ -224,9 +215,8 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
                 padding=True,
                 truncation=True
             )
-            # Move input tensors to the same device as model's embeddings
-            embed_device = next(model.language_model.model.embed_tokens.parameters()).device
-            inputs = {k: v.to(embed_device) for k, v in inputs.items()}
+            # Move input tensors to GPU 0 where embeddings are
+            inputs = {k: v.to("cuda:0") for k, v in inputs.items()}
             
             # Generate
             with torch.inference_mode():
