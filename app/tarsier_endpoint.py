@@ -216,7 +216,8 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
                 # Process video using Tarsier's original implementation
                 try:
                     print("Processing with instruction:", request.instruction)
-                    prompt = f"<video>\n{request.instruction}"
+                    # Format prompt according to Tarsier's expected format
+                    prompt = f"USER: <video>\n{request.instruction} ASSISTANT: "
                     
                     # Use Tarsier's process_one function with explicit n_frames
                     generated_text = process_one(
@@ -239,7 +240,8 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
         else:
             # Text-only processing
             try:
-                prompt = request.instruction
+                # Format prompt according to Tarsier's expected format
+                prompt = f"USER: {request.instruction} ASSISTANT: "
                 generated_text = process_one(
                     model=model,
                     processor=processor,
