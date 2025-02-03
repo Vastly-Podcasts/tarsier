@@ -74,6 +74,9 @@ async def load_model():
             max_memory={0: "38GB", 1: "38GB", "cpu": "50GB"}
         )
         
+        # Tie weights before using auto device mapping
+        model.tie_weights()
+        
         print("Model and processor loaded successfully!")
     except Exception as e:
         print(f"Error loading model: {str(e)}")

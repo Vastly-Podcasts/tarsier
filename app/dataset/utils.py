@@ -46,7 +46,7 @@ def sample_video(
 
 def sample_gif(
         gif_path: str,
-        n_frames:int = None,
+        n_frames: int = 8,
         start_time: int = 0,
         end_time: int = -1
     ) -> List[Image.Image]:
@@ -54,6 +54,7 @@ def sample_gif(
     assert os.path.exists(gif_path), f"File not found: {gif_path}"
     
     gif_frames = Image.open(gif_path)
+    print(f"GIF loaded: {gif_frames.n_frames} frames")
 
     start_frame = 0
     end_frame = gif_frames.n_frames - 1
@@ -62,6 +63,7 @@ def sample_gif(
         total_frames=end_frame - start_frame + 1,
         n_frames=n_frames,
     )
+    print(f"Sampling {n_frames} frames at indices: {frame_indices}")
         
     frames = []
     i = 0
@@ -73,11 +75,12 @@ def sample_gif(
 
 def sample_image(
     image_path: str, 
-    n_frames: int = None,
+    n_frames: int = 1,
     start_time: int = 0,
     end_time: int = -1
     ):
     assert os.path.exists(image_path), f"File not found: {image_path}"
+    print(f"Loading image: {image_path}")
     image = Image.open(image_path).convert('RGB')
     return [image]
 
