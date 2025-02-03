@@ -17,7 +17,7 @@ sys.path.append(tarsier_path)
 # Import Tarsier modules
 from tarsier.models.modeling_tarsier import TarsierForConditionalGeneration, LlavaConfig
 from tarsier.dataset.processor import Processor
-from tarsier.dataset.utils import get_visual_type, sample_frame_indices, sample_video, sample_gif, sample_image
+from tarsier.dataset.utils import get_visual_type
 
 app = FastAPI(title="Tarsier Original Implementation API")
 
@@ -59,26 +59,13 @@ def load_model_and_processor(model_name_or_path, max_n_frames=8):
     model.eval()
     return model, processor
 
-def process_one(model, processor: Processor, prompt, video_file, generate_kwargs):
+def process_one(model, processor, prompt, video_file, generate_kwargs):
     try:
         print(f"Inputs values: model={model}, processor={processor}, prompt={prompt}, video_file={video_file}, generate_kwargs={generate_kwargs}")
-        
-        # Ensure n_frames is properly set from processor
-        n_frames = processor.max_n_frames if hasattr(processor, 'max_n_frames') else 8
-        print(f"Using n_frames={n_frames} from processor")
-        
-        # Process with explicit n_frames
-        inputs = processor(
-            prompt, 
-            video_file, 
-            edit_prompt=True, 
-            return_prompt=True,
-            n_frames=n_frames  # Explicitly pass n_frames
-        )
-        
+        # Use processor directly like in inference_quick_start.py
+        inputs = processor(prompt, video_file, edit_prompt=True, return_prompt=True)
         if 'prompt' in inputs:
             print(f"Prompt: {inputs.pop('prompt')}")
-        
         inputs = {k:v.to(model.device) for k,v in inputs.items() if v is not None}
         outputs = model.generate(
             **inputs,
@@ -89,60 +76,6 @@ def process_one(model, processor: Processor, prompt, video_file, generate_kwargs
     except Exception as e:
         print(f"Error processing video in process_one: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
-def sample_frame_indices(start_frame, total_frames: int, n_frames: int):
-    """Sample frame indices with proper handling of n_frames."""
-    if n_frames is None:
-        n_frames = 8  # Default to 8 frames if None
-    if n_frames == 1:
-        return [0]  # sample first frame in default
-    sample_ids = [round(i * (total_frames - 1) / (n_frames - 1)) for i in range(n_frames)]
-    sample_ids = [i + start_frame for i in sample_ids]
-    return sample_ids
-
-def sample_video(
-    video_path: str, 
-    n_frames: int = 8,  # Default to 8 frames
-    start_time: int = 0,
-    end_time: int = -1
-    ) -> List[Image.Image]:
-    """Sample frames from video with proper n_frames handling."""
-    assert os.path.exists(video_path), f"File not found: {video_path}"
-    vr = decord.VideoReader(video_path, num_threads=1, ctx=decord.cpu(0))
-    vr.seek(0)
-    total_frames = len(vr)
-    fps = vr.get_avg_fps()
-    print(f"Video loaded: {total_frames} frames, {fps:.2f} fps")
-
-    start_frame = 0
-    end_frame = total_frames - 1
-    if start_time > 0:
-        start_frame = min((total_frames-1), int(fps*start_time))
-    if end_time > 0:
-        end_frame = max(start_frame, int(fps*end_time))
-        end_frame = min(end_frame, (total_frames-1))
-    
-    if n_frames is None:
-        n_frames = 8  # Default to 8 frames if None
-    
-    frame_indices = sample_frame_indices(
-        start_frame=start_frame,
-        total_frames=end_frame - start_frame + 1,
-        n_frames=n_frames
-    )
-    print(f"Sampling {n_frames} frames at indices: {frame_indices}")
-
-    frames = vr.get_batch(frame_indices).asnumpy()
-    frames = [Image.fromarray(f).convert('RGB') for f in frames]
-    return frames
-
-class GenerateRequest(BaseModel):
-    instruction: str
-    max_new_tokens: int = 512
-    do_sample: bool = False
-    temperature: float = 0.0
-    top_p: float = 1.0
-    video_url: Optional[HttpUrl] = None
 
 async def download_video(url: str) -> str:
     """Download video from URL to temporary file."""
@@ -160,6 +93,14 @@ async def download_video(url: str) -> str:
             return tmp.name
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to download video: {str(e)}")
+
+class GenerateRequest(BaseModel):
+    instruction: str
+    max_new_tokens: int = 512
+    do_sample: bool = False
+    temperature: float = 0.0
+    top_p: float = 1.0
+    video_url: Optional[HttpUrl] = None
 
 @app.on_event("startup")
 async def load_model():
