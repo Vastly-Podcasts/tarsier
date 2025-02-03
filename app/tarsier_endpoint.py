@@ -17,7 +17,7 @@ sys.path.append(tarsier_path)
 # Import Tarsier modules
 from tarsier.models.modeling_tarsier import TarsierForConditionalGeneration, LlavaConfig
 from tarsier.dataset.processor import Processor
-from tarsier.dataset.utils import get_visual_type
+from tarsier.dataset.utils import get_visual_type, sample_frame_indices, sample_video, sample_gif, sample_image
 
 app = FastAPI(title="Tarsier Original Implementation API")
 
@@ -62,10 +62,27 @@ def load_model_and_processor(model_name_or_path, max_n_frames=8):
 def process_one(model, processor, prompt, video_file, generate_kwargs):
     try:
         print(f"Inputs values: model={model}, processor={processor}, prompt={prompt}, video_file={video_file}, generate_kwargs={generate_kwargs}")
-        # Use processor directly like in inference_quick_start.py
-        inputs = processor(prompt, video_file, edit_prompt=True, return_prompt=True)
+        
+        # Get visual type
+        visual_type = get_visual_type(video_file)
+        print(f"Visual type: {visual_type}")
+        
+        # Load frames with explicit n_frames
+        if visual_type == 'video':
+            frames = sample_video(video_file, n_frames=processor.max_n_frames)
+        elif visual_type == 'gif':
+            frames = sample_gif(video_file, n_frames=processor.max_n_frames)
+        elif visual_type == 'image':
+            frames = sample_image(video_file)
+        else:
+            raise ValueError(f"Unsupported visual type: {visual_type}")
+            
+        # Process with frames
+        inputs = processor(prompt, images=frames, edit_prompt=True, return_prompt=True)
+        
         if 'prompt' in inputs:
             print(f"Prompt: {inputs.pop('prompt')}")
+            
         inputs = {k:v.to(model.device) for k,v in inputs.items() if v is not None}
         outputs = model.generate(
             **inputs,
