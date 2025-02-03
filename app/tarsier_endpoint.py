@@ -74,7 +74,11 @@ def debug_sample_frame_indices(start_frame, total_frames: int, n_frames: int):
 def process_one(model, processor, prompt, video_file, generate_kwargs):
     try:
         print(f"Inputs values: model={model}, processor={processor}, prompt={prompt}, video_file={video_file}, generate_kwargs={generate_kwargs}")
-        print(f"Processor max_n_frames: {processor.max_n_frames}")
+        
+        # Ensure processor.max_n_frames is valid before proceeding
+        if not hasattr(processor, 'max_n_frames') or not isinstance(processor.max_n_frames, int) or processor.max_n_frames < 1:
+            processor.max_n_frames = 8  # Default to 8 frames as per Tarsier's default
+        print(f"Using max_n_frames: {processor.max_n_frames}")
         
         # Get visual type
         visual_type = get_visual_type(video_file)
@@ -93,7 +97,7 @@ def process_one(model, processor, prompt, video_file, generate_kwargs):
                 # Calculate frame indices
                 start_frame = 0
                 end_frame = total_frames - 1
-                n_frames = processor.max_n_frames if isinstance(processor.max_n_frames, int) else 8  # Default to 8 if not an integer
+                n_frames = processor.max_n_frames  # Now guaranteed to be valid
                 print(f"Sampling parameters: start_frame={start_frame}, end_frame={end_frame}, n_frames={n_frames}")
                 
                 # Sample frames
@@ -114,7 +118,7 @@ def process_one(model, processor, prompt, video_file, generate_kwargs):
                 print(traceback.format_exc())
                 raise
         elif visual_type == 'gif':
-            frames = sample_gif(video_file, n_frames=processor.max_n_frames if isinstance(processor.max_n_frames, int) else 8)
+            frames = sample_gif(video_file, n_frames=processor.max_n_frames)  # Now guaranteed to be valid
         elif visual_type == 'image':
             frames = sample_image(video_file)
         else:
