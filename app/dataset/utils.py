@@ -14,7 +14,7 @@ def sample_frame_indices(start_frame, total_frames: int, n_frames: int):
 
 def sample_video(
     video_path: str, 
-    n_frames: int = None,
+    n_frames: int = 8,
     start_time: int = 0,
     end_time: int = -1
     ) -> List[Image.Image]:
@@ -24,6 +24,7 @@ def sample_video(
     vr.seek(0)
     total_frames = len(vr)
     fps = vr.get_avg_fps()
+    print(f"Video loaded: {total_frames} frames, {fps:.2f} fps")
 
     start_frame = 0
     end_frame = total_frames - 1
@@ -37,6 +38,7 @@ def sample_video(
         total_frames=end_frame - start_frame + 1,
         n_frames=n_frames,
     )
+    print(f"Sampling {n_frames} frames at indices: {frame_indices}")
 
     frames = vr.get_batch(frame_indices).asnumpy()
     frames = [Image.fromarray(f).convert('RGB') for f in frames]
