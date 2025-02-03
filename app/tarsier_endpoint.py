@@ -82,6 +82,16 @@ def process_one(model, processor, prompt, video_file, generate_kwargs):
         print(f"Processor max_n_frames: {processor.max_n_frames}")
         print(f"Processor type: {type(processor)}")
         
+        # Add debug wrapper for load_images
+        original_load_images = processor.load_images
+        def debug_load_images(*args, **kwargs):
+            print(f"load_images called with args={args}, kwargs={kwargs}")
+            print(f"processor.max_n_frames at load_images time: {processor.max_n_frames}")
+            result = original_load_images(*args, **kwargs)
+            print(f"load_images returned {len(result)} frames")
+            return result
+        processor.load_images = debug_load_images
+        
         # Process with processor - let it handle all the frame sampling internally
         print("Processing with processor...")
         inputs = processor(prompt, video_file, edit_prompt=True, return_prompt=True)
