@@ -7,7 +7,6 @@ import os
 import requests
 from urllib.parse import urlparse
 import sys
-from tarsier.dataset.processor import Processor
 
 # Add Tarsier to path
 tarsier_path = os.path.dirname(os.path.dirname(__file__))
