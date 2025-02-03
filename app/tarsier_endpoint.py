@@ -59,40 +59,21 @@ def load_model_and_processor(model_name_or_path, max_n_frames=8):
     model.eval()
     return model, processor
 
-def process_one(model, processor: Processor, prompt, video_file, generate_kwargs):
+def process_one(model, processor, prompt, video_file, generate_kwargs):
     try:
-        # Process inputs with explicit n_frames
-        inputs = processor(
-            prompt=prompt, 
-            visual_data_file=video_file, 
-            edit_prompt=True, 
-            return_prompt=True,
-            n_frames=processor.max_n_frames  # Explicitly pass max_n_frames
-        )
-        
+        inputs = processor(prompt, video_file, edit_prompt=True, return_prompt=True)
         if 'prompt' in inputs:
-            processed_prompt = inputs.pop('prompt')
-            print(f"Processed prompt: {processed_prompt}")
-            
-        # Move inputs to device
+            print(f"Prompt: {inputs.pop('prompt')}")
         inputs = {k:v.to(model.device) for k,v in inputs.items() if v is not None}
-        
-        # Generate
         outputs = model.generate(
             **inputs,
             **generate_kwargs,
         )
-        
-        # Decode output
-        output_text = processor.tokenizer.decode(
-            outputs[0][inputs['input_ids'][0].shape[0]:],
-            skip_special_tokens=True
-        )
+        output_text = processor.tokenizer.decode(outputs[0][inputs['input_ids'][0].shape[0]:], skip_special_tokens=True)
         return output_text
-        
     except Exception as e:
-        print(f"Error in process_one: {str(e)}")
-        raise
+        print(f"Error processing video in process_one: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 def sample_frame_indices(start_frame, total_frames: int, n_frames: int):
     """Sample frame indices with proper handling of n_frames."""
