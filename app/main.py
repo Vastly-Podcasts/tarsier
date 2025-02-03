@@ -146,14 +146,33 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
     try:
         # Handle video if URL is provided
         if request.video_url:
+            print(f"\nProcessing video from URL: {request.video_url}")
             video_path = await download_video(str(request.video_url))
+            print(f"Video downloaded to: {video_path}")
+            
             try:
+                # Validate video file exists and has content
+                if not os.path.exists(video_path):
+                    raise HTTPException(status_code=400, detail="Video file not created")
+                video_size = os.path.getsize(video_path)
+                print(f"Video file size: {video_size / 1024:.2f} KB")
+                
+                if video_size == 0:
+                    raise HTTPException(status_code=400, detail="Video file is empty")
+                
                 # Process video and text together
+                print("Processing video with instruction:", request.instruction)
                 processor_output = processor(
                     text=request.instruction,
                     videos=video_path,
                     return_tensors="pt"
                 )
+                
+                # Log processor output structure
+                print("\nProcessor output keys:", processor_output.keys())
+                for k, v in processor_output.items():
+                    if isinstance(v, torch.Tensor):
+                        print(f"{k} shape: {v.shape}, dtype: {v.dtype}, device: {v.device}")
                 
                 # Let the model handle device placement
                 inputs = {
@@ -161,7 +180,19 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
                     for k, v in processor_output.items()
                 }
                 
+                # Log input structure after device placement
+                print("\nModel inputs after device placement:")
+                for k, v in inputs.items():
+                    if isinstance(v, torch.Tensor):
+                        print(f"{k} shape: {v.shape}, dtype: {v.dtype}, device: {v.device}")
+                
                 # Generate
+                print("\nGenerating with settings:", {
+                    "max_new_tokens": request.max_new_tokens,
+                    "temperature": request.temperature,
+                    "top_p": request.top_p
+                })
+                
                 with torch.inference_mode():
                     outputs = model.generate(
                         **inputs,
@@ -172,17 +203,23 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
                         use_cache=True
                     )
                 
+                print(f"\nGeneration output shape: {outputs.shape}")
+                
                 # Move output to CPU for decoding
                 outputs = outputs.cpu()
                 input_length = inputs["input_ids"].shape[1]
+                print(f"Input length: {input_length}")
                 
                 # Decode only the new tokens
                 generated_text = tokenizer.decode(
                     outputs[0][input_length:],
                     skip_special_tokens=True
                 )
+                print(f"\nGenerated text: {generated_text}")
+                
             finally:
                 # Cleanup temporary video file
+                print(f"Cleaning up temporary file: {video_path}")
                 os.unlink(video_path)
         else:
             # Text-only path
