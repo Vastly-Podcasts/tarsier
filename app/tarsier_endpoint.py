@@ -43,6 +43,7 @@ def load_model_and_processor(model_name_or_path, max_n_frames=8):
         add_sep=False,     # Don't add separator tokens
         do_image_padding=False  # Use resize instead of padding
     )
+    print(f"Created processor with max_n_frames={processor.max_n_frames}")
     
     # Load model config
     model_config = LlavaConfig.from_pretrained(
@@ -78,59 +79,12 @@ def debug_sample_frame_indices(start_frame, total_frames: int, n_frames: int):
 def process_one(model, processor, prompt, video_file, generate_kwargs):
     try:
         print(f"Inputs values: model={model}, processor={processor}, prompt={prompt}, video_file={video_file}, generate_kwargs={generate_kwargs}")
+        print(f"Processor max_n_frames: {processor.max_n_frames}")
+        print(f"Processor type: {type(processor)}")
         
-        # Ensure processor.max_n_frames is valid before proceeding
-        if not hasattr(processor, 'max_n_frames') or not isinstance(processor.max_n_frames, int) or processor.max_n_frames < 1:
-            processor.max_n_frames = 8  # Default to 8 frames as per Tarsier's default
-        print(f"Using max_n_frames: {processor.max_n_frames}")
-        
-        # Get visual type
-        visual_type = get_visual_type(video_file)
-        print(f"Visual type: {visual_type}")
-        
-        # Load frames with explicit n_frames
-        if visual_type == 'video':
-            print(f"Loading video with n_frames={processor.max_n_frames}")
-            try:
-                # Load video
-                vr = decord.VideoReader(video_file, num_threads=1, ctx=decord.cpu(0))
-                total_frames = len(vr)
-                fps = vr.get_avg_fps()
-                print(f"Video loaded. Total frames: {total_frames}, FPS: {fps}")
-                
-                # Calculate frame indices
-                start_frame = 0
-                end_frame = total_frames - 1
-                n_frames = processor.max_n_frames  # Now guaranteed to be valid
-                print(f"Sampling parameters: start_frame={start_frame}, end_frame={end_frame}, n_frames={n_frames}")
-                
-                # Sample frames
-                if n_frames == 1:
-                    frame_indices = [0]
-                else:
-                    frame_indices = [round(i * (end_frame) / (n_frames - 1)) for i in range(n_frames)]
-                print(f"Calculated frame indices: {frame_indices}")
-                
-                # Get frames
-                frames = vr.get_batch(frame_indices).asnumpy()
-                frames = [Image.fromarray(f).convert('RGB') for f in frames]
-                print(f"Successfully sampled {len(frames)} frames from video")
-                
-            except Exception as e:
-                print(f"Error in video sampling: {str(e)}")
-                import traceback
-                print(traceback.format_exc())
-                raise
-        elif visual_type == 'gif':
-            frames = sample_gif(video_file, n_frames=processor.max_n_frames)  # Now guaranteed to be valid
-        elif visual_type == 'image':
-            frames = sample_image(video_file)
-        else:
-            raise ValueError(f"Unsupported visual type: {visual_type}")
-            
-        # Process with frames
-        print("Processing frames with processor...")
-        inputs = processor(prompt, images=frames, edit_prompt=True, return_prompt=True)
+        # Process with processor - let it handle all the frame sampling internally
+        print("Processing with processor...")
+        inputs = processor(prompt, video_file, edit_prompt=True, return_prompt=True)
         
         if 'prompt' in inputs:
             print(f"Prompt: {inputs.pop('prompt')}")
@@ -247,7 +201,7 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
                 # Format prompt according to Tarsier's expected format
                 prompt = f"USER: {request.instruction} ASSISTANT: "
                 generated_text = process_one(
-                    model=model_state.processor,
+                    model=model_state.model,
                     processor=model_state.processor,
                     prompt=prompt,
                     video_file=None,
