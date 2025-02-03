@@ -94,4 +94,17 @@ def get_visual_type(input_file):
         return 'image'
     else:
         print(f"{VALID_DATA_FORMAT_STRING} But found {ext}!")
-        return 'unk' 
+        return 'unk'
+
+def load_images(self, visual_data_path, n_frames=8, start_time=0, end_time=-1):
+    """Load images from a video/image file.
+    
+    Args:
+        visual_data_path (str): Path to video/image file
+        n_frames (int): Number of frames to sample (default: 8)
+        start_time (int): Start time in seconds
+        end_time (int): End time in seconds
+    """
+    sampler = self.select_frames_sampler(visual_data_path)
+    print(f"Using sampler for type: {get_visual_type(visual_data_path)}")
+    return sampler(visual_data_path, n_frames=n_frames, start_time=start_time, end_time=end_time) 

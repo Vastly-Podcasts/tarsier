@@ -126,9 +126,19 @@ class Processor(object):
         prompt_ids = torch.tensor(prompt_ids, dtype=torch.long).unsqueeze(dim=0)
         return prompt_ids
 
-    def get_inputs(self, prompt, visual_data_file=None, images=None, n_frames=None, edit_prompt=False, return_prompt=False):
+    def get_inputs(self, prompt, visual_data_file=None, images=None, n_frames=8, edit_prompt=False, return_prompt=False):
+        """Get model inputs from prompt and visual data.
+        
+        Args:
+            prompt (str): Text prompt
+            visual_data_file (str, optional): Path to video/image file
+            images (List[PIL.Image], optional): List of PIL images
+            n_frames (int): Number of frames to sample (default: 8)
+            edit_prompt (bool): Whether to process prompt with visual tokens
+            return_prompt (bool): Whether to return processed prompt
+        """
         if images is None:
-            images = self.load_images(visual_data_file, n_frames) if visual_data_file else None
+            images = self.load_images(visual_data_file, n_frames=n_frames) if visual_data_file else None
         if edit_prompt:
             prompt = self.process_prompt(prompt, images)
         text_inputs = self.get_text_inputs(prompt)
@@ -141,5 +151,5 @@ class Processor(object):
             inputs['prompt'] = prompt
         return inputs
 
-    def __call__(self, prompt, visual_data_file=None, images=None, n_frames=None, edit_prompt=False, return_prompt=False):
+    def __call__(self, prompt, visual_data_file=None, images=None, n_frames=8, edit_prompt=False, return_prompt=False):
         return self.get_inputs(prompt, visual_data_file, images, n_frames, edit_prompt, return_prompt) 
