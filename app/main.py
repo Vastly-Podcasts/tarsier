@@ -199,9 +199,14 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
                 os.unlink(video_path)
         else:
             # Text-only path
-            inputs = tokenizer(request.instruction, return_tensors="pt")
-            # Move tensors to appropriate devices
-            inputs = move_to_device(inputs, model.hf_device_map)
+            inputs = tokenizer(
+                request.instruction,
+                return_tensors="pt",
+                padding=True,
+                truncation=True
+            )
+            # For text-only, put everything on GPU 0 where the embeddings are
+            inputs = {k: v.to("cuda:0") for k, v in inputs.items()}
             
             # Generate
             with torch.inference_mode():
@@ -213,6 +218,9 @@ async def generate(request: GenerateRequest) -> Dict[str, Any]:
                     top_p=request.top_p,
                     use_cache=True
                 )
+            
+            # Move output to CPU for decoding
+            outputs = outputs.cpu()
             
             # Decode only the new tokens
             generated_text = tokenizer.decode(
