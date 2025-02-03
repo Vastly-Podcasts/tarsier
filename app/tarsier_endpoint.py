@@ -48,7 +48,11 @@ def load_model_and_processor(model_name_or_path, max_n_frames=8):
 
 def process_one(model, processor, prompt, video_file, generate_kwargs):
     # Always use max_n_frames from processor for consistency
-    inputs = processor(prompt, video_file, edit_prompt=True, return_prompt=True, n_frames=processor.max_n_frames)
+    try:
+        inputs = processor(prompt, video_file, edit_prompt=True, return_prompt=True, n_frames=processor.max_n_frames)
+    except Exception as e:
+        print(f"Error processing video: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
     if 'prompt' in inputs:
         print(f"Prompt: {inputs.pop('prompt')}")
     inputs = {k:v.to(model.device) for k,v in inputs.items() if v is not None}
